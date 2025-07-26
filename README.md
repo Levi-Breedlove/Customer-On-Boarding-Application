@@ -76,16 +76,16 @@ Customer uploads ZIP
    Amazon S3 (zipped/)
         |
         v   EventBridge: ObjectCreated -> StartExecution
-+--------------------------------+
-|   DocumentStateMachine         |   **Tracing:** X-Ray
-|   **StartAt:** Unzip           |
-|   Unzip(Lambda)                |   Extracts -> unzipped/
-|   WriteToDynamo(Lambda)        |   Writes base record to DynamoDB
-|   PerformChecks(Parallel)      |
-|  ├─CompareFaces(Lambda)        |  --> LICENSE_SELFIE_MATCH
-|  └─CompareDetails(Lambda)      |  --> LICENSE_DETAILS_MATCH
-|   ValidateSend(SQS sendMessage)|  <-- only if both True
-+--------------------------------+
++----------------------------------+
+|   DocumentStateMachine           |   **Tracing:** X-Ray
+|   **StartAt:** Unzip             |
+|   Unzip(Lambda)                  |   Extracts -> unzipped/
+|   WriteToDynamo(Lambda)          |   Writes base record to DynamoDB
+|   PerformChecks(Parallel)        |
+|    ├─CompareFaces(Lambda)        |  --> LICENSE_SELFIE_MATCH
+|    └─CompareDetails(Lambda)      |  --> LICENSE_DETAILS_MATCH
+|   ValidateSend(SQS sendMessage)  |  <-- only if both True
++----------------------------------+
         |
         v
  Amazon SQS (LicenseQueue)  [DLQ on failures]
