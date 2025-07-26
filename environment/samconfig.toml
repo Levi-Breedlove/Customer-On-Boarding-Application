@@ -1,0 +1,10 @@
+version = 0.1
+[default]
+[default.deploy]
+[default.deploy.parameters]
+stack_name = "kyc-app"
+s3_bucket = "aws-sam-cli-managed-default-samclisourcebucket-c3ly3q7qx336"
+s3_prefix = "kyc-app"
+region = "us-west-2"
+capabilities = "CAPABILITY_NAMED_IAM"
+image_repositories = []

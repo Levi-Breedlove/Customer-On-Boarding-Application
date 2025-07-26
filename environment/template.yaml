@@ -1,0 +1,291 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  sam-kyc
+
+  Sample SAM Template for sam-kyc
+
+Globals:
+  Function:
+    Timeout: 20
+    MemorySize: 128
+    Tracing: Active
+    Environment:
+      Variables:
+       POWERTOOLS_SERVICE_NAME: kyc-app
+    Layers:
+      - !Sub arn:aws:lambda:${AWS::Region}:017000801446:layer:AWSLambdaPowertoolsPythonV2:51
+
+
+Resources:
+#-----Start - S3 document bucket -----#
+  DocumentBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub documentbucket-${AWS::AccountId}
+      PublicAccessBlockConfiguration: #Sets "Block all public access" to "On" for the bucket
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      # Amazon EventBridge receives notifications for all events in the bucket.
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
+#-----End - S3 document bucket -----#
+
+#-----Start Document bucket policy -----#
+  DocumentBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties: 
+      Bucket: !Ref DocumentBucket
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action: s3:*
+            Effect: Deny
+            Resource: 
+              - !Sub arn:aws:s3:::${DocumentBucket}
+              - !Sub arn:aws:s3:::${DocumentBucket}/*
+            Principal: '*'
+            Condition:
+              Bool: 
+                'aws:SecureTransport': 
+                  - false
+#-----End Document bucket policy -----#
+
+#-----Start - SNS Topic -----#
+  ApplicationStatusTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: ApplicationNotifications
+      TopicName: ApplicationNotifications
+      KmsMasterKeyId: alias/aws/sns
+#-----End - SNS Topic -----#
+
+#-----Start - DDB for customer metadata with auto-scaling-----#
+  CustomerDDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      AttributeDefinitions:
+        - 
+          AttributeName: APP_UUID
+          AttributeType: S
+      KeySchema:
+        -
+          AttributeName: APP_UUID
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 2
+        WriteCapacityUnits: 2
+      TableName: CustomerMetadataTable
+
+  DDBWriteAutoScaling:
+      Type: AWS::ApplicationAutoScaling::ScalableTarget
+      DependsOn: CustomerDDBTable
+      Properties:
+        MaxCapacity: 20
+        MinCapacity: 2
+        ResourceId: table/CustomerMetadataTable
+        RoleARN: !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/dynamodb.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_DynamoDBTable
+        ScalableDimension: dynamodb:table:WriteCapacityUnits
+        ServiceNamespace: dynamodb
+
+  DDBReadAutoScaling:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    DependsOn: CustomerDDBTable
+    Properties:
+      MaxCapacity: 20
+      MinCapacity: 2
+      ResourceId: table/CustomerMetadataTable
+      RoleARN: !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/dynamodb.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_DynamoDBTable
+      ScalableDimension: dynamodb:table:ReadCapacityUnits
+      ServiceNamespace: dynamodb
+
+  TableWriteScalingPolicy: 
+    Type: "AWS::ApplicationAutoScaling::ScalingPolicy"
+    Properties: 
+      PolicyName: WriteAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref DDBWriteAutoScaling
+      TargetTrackingScalingPolicyConfiguration: 
+        TargetValue: 70
+        ScaleInCooldown: 2
+        ScaleOutCooldown: 2
+        PredefinedMetricSpecification: 
+          PredefinedMetricType: DynamoDBWriteCapacityUtilization
+
+  TableReadScalingPolicy: 
+    Type: "AWS::ApplicationAutoScaling::ScalingPolicy"
+    Properties: 
+      PolicyName: ReadAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref DDBReadAutoScaling
+      TargetTrackingScalingPolicyConfiguration: 
+        TargetValue: 70
+        ScaleInCooldown: 2
+        ScaleOutCooldown: 2
+        PredefinedMetricSpecification: 
+          PredefinedMetricType: DynamoDBReadCapacityUtilization
+#-----End - DDB for customer metadata with auto-scaling-----#
+
+#-----Start - SQS, Lambda trigger and DLQ -----#
+  SQSQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: LicenseQueue
+      VisibilityTimeout: 300
+      RedrivePolicy: 
+        deadLetterTargetArn: !GetAtt LicenseDeadLetterQueue.Arn
+        maxReceiveCount: 5
+
+  LicenseDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties: 
+      QueueName: LicenseDeadLetterQueue
+#-----End - SQS, Lambda trigger and DLQ -----#
+
+  UnzipLambdaFunction:
+    Type: AWS::Serverless::Function 
+    Properties:
+      FunctionName: UnzipLambdaFunction
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/UnzipLambdaRole
+      CodeUri: UnzipLambdaFunction/
+      Handler: app.lambda_handler
+      Runtime: python3.12
+      Tracing: Active
+
+  WriteToDynamoLambdaFunction:
+    Type: AWS::Serverless::Function 
+    Properties:
+      FunctionName: WriteToDynamoLambdaFunction
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/WriteToDynamoLambdaRole
+      Environment:
+        Variables:
+          TABLE:  !Ref CustomerDDBTable
+      CodeUri: WriteToDynamoLambdaFunction/
+      Handler: app.lambda_handler
+      Runtime: python3.12
+      Tracing: Active
+
+  CompareFacesLambdaFunction:
+    Type: AWS::Serverless::Function 
+    Properties:
+      FunctionName: CompareFacesLambdaFunction
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/CompareFacesLambdaRole
+      Environment:
+        Variables:
+          TABLE:  !Ref CustomerDDBTable
+          TOPIC: !GetAtt ApplicationStatusTopic.TopicArn
+      CodeUri: CompareFacesLambdaFunction/
+      Handler: app.lambda_handler
+      Runtime: python3.12
+      Tracing: Active
+
+  CompareDetailsLambdaFunction:
+    Type: AWS::Serverless::Function 
+    Properties:
+      FunctionName: CompareDetailsLambdaFunction
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/CompareDetailsLambdaRole
+      Environment:
+        Variables:
+          TABLE:  !Ref CustomerDDBTable
+          TOPIC: !GetAtt ApplicationStatusTopic.TopicArn
+      CodeUri: CompareDetailsLambdaFunction/
+      Handler: app.lambda_handler
+      Runtime: python3.12
+      Tracing: Active
+  
+#-----Start - Validate License Lambda function and API-----#
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: "$default"
+
+  ValidateLicenseLambdaFunction:
+    Type: AWS::Serverless::Function 
+    Properties:
+      FunctionName: ValidateLicenseLambdaFunction
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/ValidateLicenseLambdaRole
+      CodeUri: ValidateLicenseLambdaFunction/
+      Handler: app.lambda_handler
+      Runtime: python3.12
+      Events:
+        License:
+          Type: HttpApi
+          Properties:
+            Path: /license
+            Method: post
+            ApiId: !Ref HttpApi
+#-----End - Validate License Lambda function and API-----#
+#-----Start - Submit License Lambda function -----#
+  SubmitLicenseLambdaFunction:
+    Type: AWS::Serverless::Function 
+    Properties:
+      FunctionName: SubmitLicenseLambdaFunction
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/SubmitLicenseLambdaRole
+      CodeUri: SubmitLicenseLambdaFunction/
+      Handler: app.lambda_handler
+      Runtime: python3.12
+      Environment:
+        Variables:
+          INVOKE_URL: !Sub https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/license
+          TABLE:  !Ref CustomerDDBTable
+          TOPIC: !GetAtt ApplicationStatusTopic.TopicArn
+          QUEUE_URL: !Sub arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:LicenseQueue
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Enabled: true
+            Queue: !Sub arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:LicenseQueue
+            BatchSize: 1
+#-----End - Submit License Lambda function -----#
+#----- Start state machine resource -------#
+  DocumentStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: DocumentStateMachine
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/DocumentStateMachineRole
+      Tracing:
+        Enabled: true
+      Definition:
+        StartAt: Unzip
+        States:
+          Unzip:
+            Type: Task
+            Resource: !GetAtt UnzipLambdaFunction.Arn
+            ResultPath: "$.application"
+            Next: WriteToDynamo
+          WriteToDynamo:
+            Type: Task
+            Resource: !GetAtt WriteToDynamoLambdaFunction.Arn
+            ResultPath: "$.notification"
+            Next: PerformChecks
+          PerformChecks:
+            Type: Parallel
+            Branches:
+            - StartAt: CompareFaces
+              States:
+                CompareFaces:
+                  Type: Task
+                  Resource: !GetAtt CompareFacesLambdaFunction.Arn
+                  End: true
+            - StartAt: CompareDetails
+              States:
+                CompareDetails:
+                  Type: Task
+                  Resource: !GetAtt CompareDetailsLambdaFunction.Arn
+                  End: true
+            ResultPath:
+            Next: ValidateSend
+          ValidateSend:
+            Type: Task
+            Resource: "arn:aws:states:::sqs:sendMessage"
+            Parameters:
+              QueueUrl: !GetAtt SQSQueue.QueueUrl
+              MessageBody.$: $.notification
+            End: true
+#----- End state machine resource -------#

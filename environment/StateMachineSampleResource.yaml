@@ -1,0 +1,44 @@
+#----- Start state machine resource -------#
+  DocumentStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: # Add the state machine name as given in the instructions
+      Role: # Add the DocumentStateMachineRoleArn value listed to the left of the lab instructions
+      Definition:
+        StartAt: # Add the name of the first state from the lab diagram
+        States:
+          Unzip:
+            Type: Task
+            Resource: # Add the UnzipLambdaFunctionArn value listed to the left of the lab instructions
+            ResultPath: "$.application"
+            Next: # Add the name of the next state from the provided diagram
+          WriteToDynamo:
+            Type: Task
+            Resource: # Add the WriteToDynamoLambdaFunctionArn value listed to the left of the lab instructions
+            ResultPath: "$.notification"
+            Next: # Add the name of the next state from the provided diagram
+          PerformChecks:
+            Type: Parallel
+            Branches:
+              - StartAt: CompareFaces
+                States:
+                  CompareFaces:
+                    Type: Task
+                    Resource: # Add the CompareFacesLambdaFunctionArn value listed to the left of the lab instructions
+                    End: true
+              - StartAt: CompareDetails
+                States:
+                  CompareDetails:
+                    Type: Task
+                    Resource: # Add the CompareDetailsLambdaFunctionArn value listed to the left of the lab instructions
+                    End: true
+            ResultPath: 
+            Next: # Add the name of the next state from the provided diagram
+          ValidateSend:
+            Type: Task
+            Resource: "arn:aws:states:::sqs:sendMessage"
+            Parameters:
+              QueueUrl: # Add the LicenseQueueUrl value listed to the left of the lab instructions
+              MessageBody.$: $.notification
+            End: true
+#----- End state machine resource -------#

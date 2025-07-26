@@ -4,6 +4,75 @@ A production-style, serverless pipeline that ingests customer identity document 
 
 ---
 
+# Customer Onboarding Application Architecture
+![Customer Onboarding Application Architecture](images/onboarding-architecture.png)
+## Workflow:
+
+1. **Upload** ZIP to **S3** under `zipped/`.  
+
+
+2. **EventBridge** rule detects `ObjectCreated` on the bucket/prefix and **starts `DocumentStateMachine`**.  
+
+
+3. **Unzip** — `UnzipLambdaFunction` downloads the ZIP to `/tmp`, extracts, deletes the archive (≤512MB guard), and writes artifacts to **`unzipped/`**.  
+   - Emits `$.application` with `app_uuid`, `selfie_key`, `license_key`, and `details_file`.  
+
+
+4. **WriteToDynamo** — `WriteToDynamoLambdaFunction` fetches **`unzipped/{app_uuid}_details.csv`**, parses the **first (only) row**, then writes the item to **`CustomerMetadataTable`** keyed by `app_uuid`.  
+
+
+5. **PerformChecks (Parallel)**  
+   - **CompareFaces** — `CompareFacesLambdaFunction` uses **Rekognition** to compare selfie vs license photo; writes `LICENSE_SELFIE_MATCH`.  
+   - **CompareDetails** — `CompareDetailsLambdaFunction` uses **Textract** to extract **name/DOB/address** and compare to CSV; writes `LICENSE_DETAILS_MATCH`.  
+   - If **either** branch fails or mismatches → **execution fails** (no SQS message).  
+
+
+6. **ValidateSend** — `arn:aws:states:::sqs:sendMessage` sends a message to **`LicenseQueue`** with `app_uuid` and license details **only if both checks passed**. 
+
+
+7. **SubmitLicense** — `SubmitLicenseLambdaFunction` (SQS consumer) calls **`INVOKE_URL`** (HTTP API `POST /license`) → `ValidateLicenseLambdaFunction` (mock vendor) → updates **DynamoDB** `LICENSE_VALIDATION` and publishes **SNS**.  
+
+
+8. **Observability** — **X-Ray tracing** enabled for the state machine and key Lambdas; **CloudWatch** logs everywhere. **AWS Lambda Powertools** tracer may be used in code.
+
+
+## Architecture Overview:
+
+```text
+Customer uploads ZIP
+        |
+        v
+   Amazon S3 (zipped/)
+        |
+        v   EventBridge: ObjectCreated -> StartExecution
++----------------------------------+
+|   DocumentStateMachine           |   **Tracing:** X-Ray
+|   **StartAt:** Unzip             |
+|   Unzip(Lambda)                  |   Extracts -> unzipped/
+|   WriteToDynamo(Lambda)          |   Writes base record to DynamoDB
+|   PerformChecks(Parallel)        |
+|    ├─CompareFaces(Lambda)        |  --> LICENSE_SELFIE_MATCH
+|    └─CompareDetails(Lambda)      |  --> LICENSE_DETAILS_MATCH
+|   ValidateSend(SQS sendMessage)  |  <-- only if both True
++----------------------------------+
+        |
+        v
+ Amazon SQS (LicenseQueue)  [DLQ on failures]
+        |
+        v
+ SubmitLicenseLambdaFunction (SQS consumer)
+        |
+ HTTP API (API Gateway /prod/license)
+        |
+        v
+ ValidateLicenseLambdaFunction  (mock vendor)
+        |
+        v
+ Amazon DynamoDB  <── writes LICENSE_VALIDATION
+        |
+        v
+ Amazon SNS  ──> Email notification
+```
 ## Authoritative Resource & Name Map:
 
 ### State machine:
@@ -48,64 +117,6 @@ A production-style, serverless pipeline that ingests customer identity document 
 
 > **SQS URL note:** the document sets `QUEUE_URL` to an **ARN**. If your code calls `send_message(QueueUrl=...)`, AWS expects a **Queue URL**, not an ARN. If you see `InvalidAddress`, substitute the real Queue URL from stack outputs.
 
----
-
-## Workflow:
-
-1. **Upload** ZIP to **S3** under `zipped/`.  
-2. **EventBridge** rule detects `ObjectCreated` on the bucket/prefix and **starts `DocumentStateMachine`**.  
-3. **Unzip** — `UnzipLambdaFunction` downloads the ZIP to `/tmp`, extracts, deletes the archive (≤512MB guard), and writes artifacts to **`unzipped/`**.  
-   - Emits `$.application` with `app_uuid`, `selfie_key`, `license_key`, and `details_file`.  
-4. **WriteToDynamo** — `WriteToDynamoLambdaFunction` fetches **`unzipped/{app_uuid}_details.csv`**, parses the **first (only) row**, then writes the item to **`CustomerMetadataTable`** keyed by `app_uuid`.  
-5. **PerformChecks (Parallel)**  
-   - **CompareFaces** — `CompareFacesLambdaFunction` uses **Rekognition** to compare selfie vs license photo; writes `LICENSE_SELFIE_MATCH`.  
-   - **CompareDetails** — `CompareDetailsLambdaFunction` uses **Textract** to extract **name/DOB/address** and compare to CSV; writes `LICENSE_DETAILS_MATCH`.  
-   - If **either** branch fails or mismatches → **execution fails** (no SQS message).  
-6. **ValidateSend** — `arn:aws:states:::sqs:sendMessage` sends a message to **`LicenseQueue`** with `app_uuid` and license details **only if both checks passed**.  
-7. **SubmitLicense** — `SubmitLicenseLambdaFunction` (SQS consumer) calls **`INVOKE_URL`** (HTTP API `POST /license`) → `ValidateLicenseLambdaFunction` (mock vendor) → updates **DynamoDB** `LICENSE_VALIDATION` and publishes **SNS**.  
-8. **Observability** — **X-Ray tracing** enabled for the state machine and key Lambdas; **CloudWatch** logs everywhere. **AWS Lambda Powertools** tracer may be used in code.
-
----
-
-## Architecture Overview:
-
-```text
-Customer uploads ZIP
-        |
-        v
-   Amazon S3 (zipped/)
-        |
-        v   EventBridge: ObjectCreated -> StartExecution
-+----------------------------------+
-|   DocumentStateMachine           |   **Tracing:** X-Ray
-|   **StartAt:** Unzip             |
-|   Unzip(Lambda)                  |   Extracts -> unzipped/
-|   WriteToDynamo(Lambda)          |   Writes base record to DynamoDB
-|   PerformChecks(Parallel)        |
-|    ├─CompareFaces(Lambda)        |  --> LICENSE_SELFIE_MATCH
-|    └─CompareDetails(Lambda)      |  --> LICENSE_DETAILS_MATCH
-|   ValidateSend(SQS sendMessage)  |  <-- only if both True
-+----------------------------------+
-        |
-        v
- Amazon SQS (LicenseQueue)  [DLQ on failures]
-        |
-        v
- SubmitLicenseLambdaFunction (SQS consumer)
-        |
- HTTP API (API Gateway /prod/license)
-        |
-        v
- ValidateLicenseLambdaFunction  (mock vendor)
-        |
-        v
- Amazon DynamoDB  <── writes LICENSE_VALIDATION
-        |
-        v
- Amazon SNS  ──> Email notification
-```
-
----
 
 ## State Machine Definition: (high level)
 
@@ -156,14 +167,13 @@ States:
 **Tracing**: `Tracing.Enabled: true` on the state machine.  
 **Logging**: CloudWatch Logs (ALL states, include execution data).
 
----
 
 ## Deployment: (SAM / CloudFormation
 
 ### Prerequisites:
 
 ```bash
-aws configure        # region: us-east-1
+aws configure        
 sam --version
 python --version
 ```
@@ -187,7 +197,6 @@ sam deploy --guided
 - `QueueUrl` — SQS queue URL (use this if your code calls SQS with QueueUrl)  
 - `TableName` — `CustomerMetadataTable`
 
----
 
 ## Environment Variables:
 
@@ -202,7 +211,6 @@ sam deploy --guided
 |  | `TOPIC` | `ApplicationStatusTopicArn` |
 |  | `QUEUE_URL` | `arn:aws:sqs:us-east-1:${AWS::AccountId}:LicenseQueue` *(document shows ARN; swap to Queue **URL** if SDK requires)* |
 
----
 
 ## Testing & Expected Results:
 
@@ -237,7 +245,6 @@ aws s3 cp "$ZIP" "s3://<BucketName>/zipped/$ZIP"
 - DynamoDB: `LICENSE_DETAILS_MATCH=False`  
 - No SQS send; no `LICENSE_VALIDATION`
 
----
 
 ## Observability: (CloudWatch & X-Ray)
 
@@ -258,7 +265,6 @@ def lambda_handler(event, context):
     return {"status": "ok"}
 ```
 
----
 
 ## Security:
 
@@ -268,7 +274,6 @@ def lambda_handler(event, context):
 - **SQS/SNS**: DLQ configured; in production add **KMS CMKs** for SQS, SNS, DDB, and S3.  
 - **API Gateway**: mock endpoint; add authentication/authorization before integrating a real vendor.
 
----
 
 ## Troubleshooting:
 
@@ -283,7 +288,6 @@ def lambda_handler(event, context):
 - **Queue ARN vs URL**  
   - If your Lambda calls `send_message(QueueUrl=...)`, you must pass a **Queue URL**, not an ARN.
 
----
 
 ## Hardening for Production:
 
@@ -294,49 +298,161 @@ def lambda_handler(event, context):
 - Add **Cognito** for authenticated uploads and scoped access.  
 - Export audit data to **S3** and analyze with **Athena/Glue** if required.
 
+
+# Customer Onboarding Workflow — Valid & Invalid Runs (with References)
+
+This guide shows **exact console screenshots** for both **valid** and **invalid** customer document uploads through the serverless KYC pipeline.
+
+It highlights:
+- the **entire Step Functions state machine** on a success path and two failure paths,
+- the **S3 upload** to the `zipped/` prefix and the extracted results in `unzipped/`, and
+- the **DynamoDB table** items that prove outcomes.
+
+
+## 1) State Machine — Full Success Execution
+
+A valid submission traverses all states and ends **SUCCEEDED**.
+
+![Document — success](images/image30.png)
+
+![State machine — success](images/image29.png)
+
+![State machine — success](images/table1.png)
+
+**What to verify**
+- `Unzip` → `WriteToDynamo` → `PerformChecks` (**CompareFaces**, **CompareDetails**) → `ValidateSend` (SQS).  
+- No red failure nodes; overall status **SUCCEEDED**.
+- X‑Ray tracing is enabled; links visible in execution details.
+- If subscribed to the SNS topic via email, confirmed that a notification was received with:
+   - Subject: License photo validation SUCCEEDED
+   - Message: License photo validation SUCCEEDED
+
+     ![SNS — success](images/snscreation.png)
+     ![SNS — success](images/validatesuceed.png)
+
+
+
+## 2) State Machine — Failure Paths
+
+### 2.1 Face Mismatch → **CompareFaces** fails
+![State machine — fail at CompareFaces](images/facefail1.png)
+![State machine — fail at CompareFaces](images/image28.png)
+![State machine — fail at CompareFaces](images/table2.png)
+
+**Expected outcome**
+- Execution **FAILED** in `CompareFaces`.  
+- No `ValidateSend` to SQS.  
+- DynamoDB has `LICENSE_SELFIE_MATCH` set **False**; `LICENSE_VALIDATION` is **absent** (not attempted).
+- If subscribed to the SNS topic via email, confirmed that a notification was received with:
+   - Subject: License photo validation FAILED
+   - Message: License photo validation FAILED
+
+     ![SNS — fail](images/validationfail3rdparty.png)
+     ![SNS — fail](images/licensephotofail.png)
+
+### 2.2 Details Mismatch → **CompareDetails** fails
+
+![State machine — fail at CompareDetails](images/detailsfail1.png)
+![State machine — fail at CompareDetails](images/detailsfailstate.png)
+![State machine — fail at CompareDetails](images/table3.png)
+
+
+**Expected outcome**
+- Execution **FAILED** in `CompareDetails`.  
+- No `ValidateSend` to SQS.  
+- DynamoDB shows `LICENSE_DETAILS_MATCH` **False**; `LICENSE_VALIDATION` **absent**.
+- If subscribed to the SNS topic via email, confirmed that a notification was received with:
+   - Subject: License photo validation FAILED
+   - Message: License photo validation FAILED
+
+     ![SNS — fail](images/datavalidationfail.png)
+
+## 3) S3 Document Intake
+
+### 3.1 Upload ZIP to `zipped/`
+
+![S3 upload — zipped/ prefix](images/upload1.png)
+
+**What to verify**
+- Your `.zip` object appears under `zipped/`.  
+- EventBridge rule targets the Step Functions state machine.
+
+### 3.2 Unzipped Artifacts
+
+![S3 extract — unzipped/ prefix](images/unzipped1.png)
+![S3 extract — unzipped/ prefix](images/fullunzip.png)
+
+**What to verify**
+- `unzipped/` contains the **selfie image**, **license image**, and **`{app_uuid}_details.csv`**.
+
+
+## 4) DynamoDB Results
+![DynamoDB — details mismatch](images/fulltable.png)
+
 ---
+## 🔍 AWS X-Ray Tracing — End-to-End Visibility
 
-## Workflow Frames:
+This section explains how X-Ray traces the full onboarding run — from the S3-triggered state machine through parallel checks, SQS handoff, API call, and final database/notification writes.
 
-### Frame 1 — S3 Upload Detected (zipped/)
-EventBridge rule captures ObjectCreated on the bucket `DocumentBucket` with prefix `zipped/` and starts the `DocumentStateMachine`. Verify the event detail shows the correct object key.
-![Frame 1 — S3 Upload Detected (zipped/)](./images/image1.png)
+### Frame X1 — Service Map Overview (End-to-End Trace)
 
-### Frame 2 — State Machine: StartAt Unzip
-Execution graph shows entry into `Unzip` (Task → `UnzipLambdaFunction`). The function downloads the ZIP to `/tmp`, extracts, and writes objects under `unzipped/`.
-![Frame 2 — State Machine: StartAt Unzip](./images/image10.png)
+- **What you should see:** Node for **Step Functions**, child **Lambda** nodes, and AWS service nodes: **Rekognition**, **Textract**, **SQS**, **API Gateway**, **DynamoDB**, **SNS**. The **Parallel** validation typically dominates latency.
 
-### Frame 3 — Unzip Output → Application Context
-`UnzipLambdaFunction` returns `$.application` containing `app_uuid`, `selfie_key`, `license_key`, and `details_file` S3 keys for downstream states.
-![Frame 3 — Unzip Output → Application Context](./images/image20.png)
+![Frame X1 — Service Map Overview (End-to-End Trace)](./images/image18.png)
 
-### Frame 4 — WriteToDynamo
-`WriteToDynamoLambdaFunction` parses the first row of the CSV (`unzipped/{app_uuid}_details.csv`) and persists a new item in `CustomerMetadataTable` keyed by `app_uuid`.
-![Frame 4 — WriteToDynamo](./images/image30.png)
+### Frame X2 — Step Functions Segment & Child States
 
-### Frame 5 — PerformChecks (Parallel)
-Parallel state runs `CompareFaces` and `CompareDetails` concurrently. Either failure short-circuits the workflow and prevents SQS send.
-![Frame 5 — PerformChecks (Parallel)](./images/image45.png)
+- **Details:** Root segment is the `DocumentStateMachine` execution with child subsegments: `Unzip`, `WriteToDynamo`, `PerformChecks` (Parallel), `ValidateSend`. Failed runs show a red child state where it stops.
 
-### Frame 6 — CompareFaces → Rekognition Result
-`CompareFacesLambdaFunction` calls Rekognition to compare the selfie and license images. Writes `LICENSE_SELFIE_MATCH` to DynamoDB.
-![Frame 6 — CompareFaces → Rekognition Result](./images/image60.png)
+![Frame X2 — Step Functions Segment & Child States](./images/image3.png)
 
-### Frame 7 — CompareDetails → Textract Result
-`CompareDetailsLambdaFunction` uses Textract to extract name/DOB/address from the license image and compares to CSV. Writes `LICENSE_DETAILS_MATCH`.
-![Frame 7 — CompareDetails → Textract Result](./images/image80.png)
+### Frame X3 — UnzipLambdaFunction Trace Details
 
-### Frame 8 — ValidateSend → SQS
-On dual success, `ValidateSend` uses `arn:aws:states:::sqs:sendMessage` to post a message to `LicenseQueue` with `app_uuid`, `selfie_key`, and `license_key`.
-![Frame 8 — ValidateSend → SQS](./images/image100.png)
+- **Checks:** S3 `GetObject` → unzip in `/tmp` → S3 `PutObject` to `unzipped/`. Ensure AWS SDK subsegments appear if instrumentation is enabled.
 
-### Frame 9 — SQS Consumer → API Gateway → ValidateLicense
-`SubmitLicenseLambdaFunction` consumes the queue message, calls `INVOKE_URL` (HTTP API `POST /license`), updates DynamoDB `LICENSE_VALIDATION`, and publishes `ApplicationStatusTopic`.
-![Frame 9 — SQS Consumer → API Gateway → ValidateLicense](./images/image120.png)
+![Frame X3 — UnzipLambdaFunction Trace Details](./images/image7.png)
 
-### Frame 10 — Success Path & Final Record
-Execution completes successfully. Verify Step Functions status, X-Ray trace, and the DynamoDB item showing all three flags set to `True` for the PASS sample.
-![Frame 10 — Success Path & Final Record](./images/image140.png)
+### Frame X4 — WriteToDynamoLambdaFunction Trace (PutItem)
+
+- **Checks:** S3 `GetObject` for CSV, then **DynamoDB `PutItem`** to `CustomerMetadataTable` with `app_uuid` PK.
+
+![Frame X4 — WriteToDynamoLambdaFunction Trace (PutItem)](./images/image13.png)
+
+### Frame X5 — Parallel Checks Segment (CompareFaces & CompareDetails)
+
+- **Details:** Two concurrent child segments: **CompareFacesLambdaFunction** and **CompareDetailsLambdaFunction**. Any failure stops before SQS.
+
+![Frame X5 — Parallel Checks Segment (CompareFaces & CompareDetails)](./images/image14.png)
+
+### Frame X6 — Rekognition Subsegment (CompareFaces)
+
+- **Checks:** AWS SDK subsegment for **`Rekognition.CompareFaces`** (~80% threshold in code). Verify response metadata, similarity, and duration.
+
+![Frame X6 — Rekognition Subsegment (CompareFaces)](./images/image23.png)
+
+### Frame X7 — Textract Subsegment (AnalyzeID) (CompareDetails)
+
+- **Checks:** **`Textract.AnalyzeID`** to read license fields; longer latency is normal.
+
+![Frame X7 — Textract Subsegment (AnalyzeID) (CompareDetails)](./images/image26.png)
+
+### Frame X8 — Step Functions → SQS SendMessage Task
+
+- **Checks:** `arn:aws:states:::sqs:sendMessage` task with message ID visible in logs; X-Ray shows the AWS call subsegment.
+
+![Frame X8 — Step Functions → SQS SendMessage Task](./images/image20.png)
+
+### Frame X9 — SubmitLicenseLambdaFunction → HTTP API call
+
+- **Checks:** SQS event → outbound **HTTP API** call (`POST /license`) to `execute-api`. Confirm status code and latency subsegment.
+
+![Frame X9 — SubmitLicenseLambdaFunction → HTTP API call](./images/image25.png)
+
+### Frame X10 — ValidateLicenseLambdaFunction → DynamoDB + SNS
+
+- **Checks:** **DynamoDB** update of `LICENSE_VALIDATION` and **SNS Publish** to `ApplicationStatusTopic`.
+
+![Frame X10 — ValidateLicenseLambdaFunction → DynamoDB + SNS](./images/image1.png)
 
 ---
-
+© 2025 Levi Breedlove – MIT License Amazon Web Services
