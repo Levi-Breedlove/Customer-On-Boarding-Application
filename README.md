@@ -4,15 +4,15 @@ A production-style, serverless pipeline that ingests customer identity document 
 
 ---
 
-## Authoritative Resource & Name Map
+## Authoritative Resource & Name Map:
 
-### State machine
+### State machine:
 - **Name:** `DocumentStateMachine`  
 - **Role:** `DocumentStateMachineRole`  
 - **States:** `Unzip` → `WriteToDynamo` → `PerformChecks` (Parallel: `CompareFaces`, `CompareDetails`) → `ValidateSend`  
 - **Tracing:** **Enabled** (AWS X-Ray)
 
-### Lambda functions
+### Lambda functions:
 - `UnzipLambdaFunction`  
 - `WriteToDynamoLambdaFunction`  
 - `CompareFacesLambdaFunction`  
@@ -20,7 +20,7 @@ A production-style, serverless pipeline that ingests customer identity document 
 - `SubmitLicenseLambdaFunction` *(SQS consumer → HTTP API call → DDB + SNS)*  
 - `ValidateLicenseLambdaFunction` *(HTTP API backend / mock vendor)*
 
-### Data stores & messaging
+### Data stores & messaging:
 - **DynamoDB table:** `CustomerMetadataTable` (PK: `app_uuid`)  
   Flags set by the workflow:
   - `LICENSE_SELFIE_MATCH` (bool)  
@@ -32,11 +32,11 @@ A production-style, serverless pipeline that ingests customer identity document 
   - Upload prefix: `zipped/`  
   - Extracted prefix: `unzipped/`
 
-### API
+### API:
 - **HTTP API logical id:** `HttpApi`  
 - **Route:** `POST /license` (mock license verification endpoint)
 
-### Environment variables (as referenced in the document)
+### Environment variables:
 - `INVOKE_URL` = `https://${HttpApi}.execute-api.us-east-1.amazonaws.com/prod/license`  
 - `TABLE` = `CustomerMetadataTable`  
 - `TOPIC` = `ApplicationStatusTopicArn`  
@@ -50,7 +50,7 @@ A production-style, serverless pipeline that ingests customer identity document 
 
 ---
 
-## Workflow
+## Workflow:
 
 1. **Upload** ZIP to **S3** under `zipped/`.  
 2. **EventBridge** rule detects `ObjectCreated` on the bucket/prefix and **starts `DocumentStateMachine`**.  
@@ -67,7 +67,7 @@ A production-style, serverless pipeline that ingests customer identity document 
 
 ---
 
-## Architecture Overview
+## Architecture Overview:
 
 ```text
 Customer uploads ZIP
@@ -107,7 +107,7 @@ Customer uploads ZIP
 
 ---
 
-## State Machine Definition (high level)
+## State Machine Definition: (high level)
 
 ```yaml
 StartAt: Unzip
@@ -158,9 +158,9 @@ States:
 
 ---
 
-## Deployment (SAM / CloudFormation) — `us-east-1`
+## Deployment: (SAM / CloudFormation
 
-### Prerequisites
+### Prerequisites:
 
 ```bash
 aws configure        # region: us-east-1
@@ -168,7 +168,7 @@ sam --version
 python --version
 ```
 
-### Build & Deploy
+### Build & Deploy:
 
 ```bash
 sam build
@@ -179,7 +179,7 @@ sam deploy --guided
 # Save arguments to samconfig.toml: y
 ```
 
-### Capture Outputs
+### Capture Outputs:
 
 - `BucketName` — the S3 bucket for intake  
 - `StateMachineArn` — Step Functions ARN  
@@ -189,7 +189,7 @@ sam deploy --guided
 
 ---
 
-## Environment Variables
+## Environment Variables:
 
 | Function | Variable | Value |
 |---|---|---|
