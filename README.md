@@ -113,59 +113,106 @@ Customer uploads ZIP
 - `BUCKET` = `DocumentBucket`  
 - `APP_UUID` = generated at runtime
 
-> **Table name note:** the source shows both `CustomerMetadataTable` and `CustomerMetaDataTable`. The **canonical deployed resource** is `CustomerMetadataTable`. Env var `TABLE` uses that exact name to avoid runtime errors.
+---
 
-> **SQS URL note:** the document sets `QUEUE_URL` to an **ARN**. If your code calls `send_message(QueueUrl=...)`, AWS expects a **Queue URL**, not an ARN. If you see `InvalidAddress`, substitute the real Queue URL from stack outputs.
+# Customer Onboarding Workflow — Valid & Invalid Runs (with References)
+
+This guide shows **exact console screenshots** for both **valid** and **invalid** customer document uploads through the serverless KYC pipeline.
+
+It highlights:
+- the **entire Step Functions state machine** on a success path and two failure paths,
+- the **S3 upload** to the `zipped/` prefix and the extracted results in `unzipped/`, and
+- the **DynamoDB table** items that prove outcomes.
 
 
-## State Machine Definition: (high level)
+## 1) State Machine — Full Success Execution
 
-```yaml
-StartAt: Unzip
-States:
-  Unzip:
-    Type: Task
-    Resource: UnzipLambdaFunction.Arn
-    ResultPath: $.application
-    Next: WriteToDynamo
+A valid submission traverses all states and ends **SUCCEEDED**.
 
-  WriteToDynamo:
-    Type: Task
-    Resource: WriteToDynamoLambdaFunction.Arn
-    ResultPath: $.notification
-    Next: PerformChecks
+![Document — success](images/image30.png)
 
-  PerformChecks:
-    Type: Parallel
-    Branches:
-      - StartAt: CompareFaces
-        States:
-          CompareFaces:
-            Type: Task
-            Resource: CompareFacesLambdaFunction.Arn
-            End: true
-      - StartAt: CompareDetails
-        States:
-          CompareDetails:
-            Type: Task
-            Resource: CompareDetailsLambdaFunction.Arn
-            End: true
-    Next: ValidateSend
+![State machine — success](images/image29.png)
 
-  ValidateSend:
-    Type: Task
-    Resource: arn:aws:states:::sqs:sendMessage
-    Parameters:
-      QueueUrl: <LicenseQueue URL or ARN per your env var>
-      MessageBody:
-        app_uuid.$: $.application.app_uuid
-        selfie_key.$: $.application.selfie_key
-        license_key.$: $.application.license_key
-    End: true
-```
+![State machine — success](images/table1.png)
 
-**Tracing**: `Tracing.Enabled: true` on the state machine.  
-**Logging**: CloudWatch Logs (ALL states, include execution data).
+**What to verify**
+- `Unzip` → `WriteToDynamo` → `PerformChecks` (**CompareFaces**, **CompareDetails**) → `ValidateSend` (SQS).  
+- No red failure nodes; overall status **SUCCEEDED**.
+- X‑Ray tracing is enabled; links visible in execution details.
+- If subscribed to the SNS topic via email, confirmed that a notification was received with:
+
+   - Subject: License photo validation SUCCEEDED
+
+   - Message: License photo validation SUCCEEDED
+
+     ![SNS — success](images/snscreation.png)
+     ![SNS — success](images/validatesuceed.png)
+
+
+## 2) State Machine — Failure Paths
+
+### 2.1 Face Mismatch → **CompareFaces** fails
+![State machine — fail at CompareFaces](images/facefail1.png)
+![State machine — fail at CompareFaces](images/image28.png)
+![State machine — fail at CompareFaces](images/table2.png)
+
+**Expected outcome**
+- Execution **FAILED** in `CompareFaces`.  
+- No `ValidateSend` to SQS.  
+- DynamoDB has `LICENSE_SELFIE_MATCH` set **False**; `LICENSE_VALIDATION` is **absent** (not attempted).
+- If subscribed to the SNS topic via email, confirmed that a notification was received with:
+
+   - Subject: License photo validation FAILED
+
+   - Message: License photo validation FAILED
+
+     ![SNS — fail](images/validationfail3rdparty.png)
+     ![SNS — fail](images/licensephotofail.png)
+
+
+### 2.2 Details Mismatch → **CompareDetails** fails
+
+![State machine — fail at CompareDetails](images/detailsfail1.png)
+![State machine — fail at CompareDetails](images/detailsfailstate.png)
+![State machine — fail at CompareDetails](images/table3.png)
+
+
+**Expected outcome**
+- Execution **FAILED** in `CompareDetails`.  
+- No `ValidateSend` to SQS.  
+- DynamoDB shows `LICENSE_DETAILS_MATCH` **False**; `LICENSE_VALIDATION` **absent**.
+- If subscribed to the SNS topic via email, confirmed that a notification was received with:
+
+   - Subject: License photo validation FAILED
+
+   - Message: License photo validation FAILED
+
+     ![SNS — fail](images/datavalidationfail.png)
+
+
+## 3) S3 Document Intake
+
+### 3.1 Upload ZIP to `zipped/`
+
+![S3 upload — zipped/ prefix](images/upload1.png)
+
+**What to verify**
+- Your `.zip` object appears under `zipped/`.  
+- EventBridge rule targets the Step Functions state machine.
+
+### 3.2 Unzipped Artifacts
+
+![S3 extract — unzipped/ prefix](images/unzipped1.png)
+![S3 extract — unzipped/ prefix](images/fullunzip.png)
+
+**What to verify**
+- `unzipped/` contains the **selfie image**, **license image**, and **`{app_uuid}_details.csv`**.
+
+
+## 4) DynamoDB Results
+![DynamoDB — details mismatch](images/fulltable.png)
+
+---
 
 
 ## Deployment: (SAM / CloudFormation
@@ -210,40 +257,6 @@ sam deploy --guided
 |  | `TABLE` | `CustomerMetadataTable` |
 |  | `TOPIC` | `ApplicationStatusTopicArn` |
 |  | `QUEUE_URL` | `arn:aws:sqs:us-east-1:${AWS::AccountId}:LicenseQueue` *(document shows ARN; swap to Queue **URL** if SDK requires)* |
-
-
-## Testing & Expected Results:
-
-### Sample-1: full success
-```bash
-ZIP=8d247914.zip
-aws s3 cp "$ZIP" "s3://<BucketName>/zipped/$ZIP"
-```
-- **Step Functions** execution: **SUCCEEDED**  
-- **DynamoDB** item fields:  
-  - `LICENSE_SELFIE_MATCH=True`  
-  - `LICENSE_DETAILS_MATCH=True`  
-  - `LICENSE_VALIDATION=True`  
-- **SNS**: onboarding email delivered  
-- **X-Ray**: trace shows state durations and Lambda subsegments
-
-### Sample-2: face mismatch → fail at `CompareFaces`
-```bash
-ZIP=9c358026.zip
-aws s3 cp "$ZIP" "s3://<BucketName>/zipped/$ZIP"
-```
-- Execution **FAILED** at **CompareFaces**  
-- DynamoDB: `LICENSE_SELFIE_MATCH=False`  
-- No SQS send; no `LICENSE_VALIDATION`
-
-### Sample-3: details mismatch → fail at `CompareDetails`
-```bash
-ZIP=7a135804.zip
-aws s3 cp "$ZIP" "s3://<BucketName>/zipped/$ZIP"
-```
-- Execution **FAILED** at **CompareDetails**  
-- DynamoDB: `LICENSE_DETAILS_MATCH=False`  
-- No SQS send; no `LICENSE_VALIDATION`
 
 
 ## Observability: (CloudWatch & X-Ray)
@@ -298,98 +311,6 @@ def lambda_handler(event, context):
 - Add **Cognito** for authenticated uploads and scoped access.  
 - Export audit data to **S3** and analyze with **Athena/Glue** if required.
 
-
-# Customer Onboarding Workflow — Valid & Invalid Runs (with References)
-
-This guide shows **exact console screenshots** for both **valid** and **invalid** customer document uploads through the serverless KYC pipeline.
-
-It highlights:
-- the **entire Step Functions state machine** on a success path and two failure paths,
-- the **S3 upload** to the `zipped/` prefix and the extracted results in `unzipped/`, and
-- the **DynamoDB table** items that prove outcomes.
-
-
-## 1) State Machine — Full Success Execution
-
-A valid submission traverses all states and ends **SUCCEEDED**.
-
-![Document — success](images/image30.png)
-
-![State machine — success](images/image29.png)
-
-![State machine — success](images/table1.png)
-
-**What to verify**
-- `Unzip` → `WriteToDynamo` → `PerformChecks` (**CompareFaces**, **CompareDetails**) → `ValidateSend` (SQS).  
-- No red failure nodes; overall status **SUCCEEDED**.
-- X‑Ray tracing is enabled; links visible in execution details.
-- If subscribed to the SNS topic via email, confirmed that a notification was received with:
-   - Subject: License photo validation SUCCEEDED
-   - Message: License photo validation SUCCEEDED
-
-     ![SNS — success](images/snscreation.png)
-     ![SNS — success](images/validatesuceed.png)
-
-
-
-## 2) State Machine — Failure Paths
-
-### 2.1 Face Mismatch → **CompareFaces** fails
-![State machine — fail at CompareFaces](images/facefail1.png)
-![State machine — fail at CompareFaces](images/image28.png)
-![State machine — fail at CompareFaces](images/table2.png)
-
-**Expected outcome**
-- Execution **FAILED** in `CompareFaces`.  
-- No `ValidateSend` to SQS.  
-- DynamoDB has `LICENSE_SELFIE_MATCH` set **False**; `LICENSE_VALIDATION` is **absent** (not attempted).
-- If subscribed to the SNS topic via email, confirmed that a notification was received with:
-   - Subject: License photo validation FAILED
-   - Message: License photo validation FAILED
-
-     ![SNS — fail](images/validationfail3rdparty.png)
-     ![SNS — fail](images/licensephotofail.png)
-
-### 2.2 Details Mismatch → **CompareDetails** fails
-
-![State machine — fail at CompareDetails](images/detailsfail1.png)
-![State machine — fail at CompareDetails](images/detailsfailstate.png)
-![State machine — fail at CompareDetails](images/table3.png)
-
-
-**Expected outcome**
-- Execution **FAILED** in `CompareDetails`.  
-- No `ValidateSend` to SQS.  
-- DynamoDB shows `LICENSE_DETAILS_MATCH` **False**; `LICENSE_VALIDATION` **absent**.
-- If subscribed to the SNS topic via email, confirmed that a notification was received with:
-   - Subject: License photo validation FAILED
-   - Message: License photo validation FAILED
-
-     ![SNS — fail](images/datavalidationfail.png)
-
-## 3) S3 Document Intake
-
-### 3.1 Upload ZIP to `zipped/`
-
-![S3 upload — zipped/ prefix](images/upload1.png)
-
-**What to verify**
-- Your `.zip` object appears under `zipped/`.  
-- EventBridge rule targets the Step Functions state machine.
-
-### 3.2 Unzipped Artifacts
-
-![S3 extract — unzipped/ prefix](images/unzipped1.png)
-![S3 extract — unzipped/ prefix](images/fullunzip.png)
-
-**What to verify**
-- `unzipped/` contains the **selfie image**, **license image**, and **`{app_uuid}_details.csv`**.
-
-
-## 4) DynamoDB Results
-![DynamoDB — details mismatch](images/fulltable.png)
-
----
 ## 🔍 AWS X-Ray Tracing — End-to-End Visibility
 
 This section explains how X-Ray traces the full onboarding run — from the S3-triggered state machine through parallel checks, SQS handoff, API call, and final database/notification writes.
