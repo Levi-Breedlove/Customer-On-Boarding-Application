@@ -1,4 +1,4 @@
-# AnyCompany Bank — Customer Onboarding (KYC) Application
+# AnyCompany Bank — Customer Onboarding Application
 
 A production-style, serverless pipeline that ingests customer identity document ZIP submissions, unzips and parses content, validates identity with **Amazon Rekognition** and **Amazon Textract**, orchestrates the process with **AWS Step Functions**, records outcomes in **Amazon DynamoDB**, and issues notifications via **Amazon SNS**. **Amazon SQS** decouples license validation behind **API Gateway** + Lambda. Full observability is delivered through **AWS X-Ray** and **Amazon CloudWatch**. The entire stack is defined with **AWS SAM / CloudFormation** for reproducible deployments.
 
