@@ -1,6 +1,6 @@
 # AnyCompany Bank — Customer Onboarding (KYC) Application
 
-A production-style, serverless KYC pipeline that ingests customer ZIP submissions, unzips and parses content, validates identity with **Amazon Rekognition** and **Amazon Textract**, orchestrates the process with **AWS Step Functions**, records outcomes in **Amazon DynamoDB**, and issues notifications via **Amazon SNS**. **Amazon SQS** decouples license validation behind **API Gateway** + Lambda. Full observability is delivered through **AWS X-Ray** and **Amazon CloudWatch**. The entire stack is defined with **AWS SAM / CloudFormation** for reproducible deployments.
+A production-style, serverless pipeline that ingests customer identity document ZIP submissions, unzips and parses content, validates identity with **Amazon Rekognition** and **Amazon Textract**, orchestrates the process with **AWS Step Functions**, records outcomes in **Amazon DynamoDB**, and issues notifications via **Amazon SNS**. **Amazon SQS** decouples license validation behind **API Gateway** + Lambda. Full observability is delivered through **AWS X-Ray** and **Amazon CloudWatch**. The entire stack is defined with **AWS SAM / CloudFormation** for reproducible deployments.
 
 ---
 
@@ -76,24 +76,24 @@ Customer uploads ZIP
    Amazon S3 (zipped/)
         |
         v   EventBridge: ObjectCreated -> StartExecution
-+---------------------------+
-|   DocumentStateMachine    |   Tracing: X-Ray
-| StartAt: Unzip            |
-|   Unzip (Lambda)          |   Extracts -> unzipped/
-|   WriteToDynamo (Lambda)  |   Writes base record to DynamoDB
-|   PerformChecks (Parallel)|
-|     ├─ CompareFaces (Lambda)    -> LICENSE_SELFIE_MATCH
-|     └─ CompareDetails (Lambda)  -> LICENSE_DETAILS_MATCH
-|   ValidateSend (SQS sendMessage)  <-- only if both True
-+---------------------------+
++--------------------------------+
+|   DocumentStateMachine         |   **Tracing:** X-Ray
+|   **StartAt:** Unzip           |
+|   Unzip(Lambda)                |   Extracts -> unzipped/
+|   WriteToDynamo(Lambda)        |   Writes base record to DynamoDB
+|   PerformChecks(Parallel)      |
+|  ├─CompareFaces(Lambda)        |  --> LICENSE_SELFIE_MATCH
+|  └─CompareDetails(Lambda)      |  --> LICENSE_DETAILS_MATCH
+|   ValidateSend(SQS sendMessage)|  <-- only if both True
++--------------------------------+
         |
         v
-   Amazon SQS (LicenseQueue)  [DLQ on failures]
+ Amazon SQS (LicenseQueue)  [DLQ on failures]
         |
         v
  SubmitLicenseLambdaFunction (SQS consumer)
         |
-  HTTP API (API Gateway /prod/license)
+ HTTP API (API Gateway /prod/license)
         |
         v
  ValidateLicenseLambdaFunction  (mock vendor)
@@ -204,7 +204,7 @@ sam deploy --guided
 
 ---
 
-## Testing & Expected Results
+## Testing & Expected Results:
 
 ### Sample-1: full success
 ```bash
@@ -239,7 +239,7 @@ aws s3 cp "$ZIP" "s3://<BucketName>/zipped/$ZIP"
 
 ---
 
-## Observability (CloudWatch & X-Ray)
+## Observability: (CloudWatch & X-Ray)
 
 - **State machine:** `Tracing.Enabled: true`; CloudWatch logging of **ALL** states with execution data.  
 - **Lambdas:** `Tracing: Active`; IAM includes:
@@ -260,7 +260,7 @@ def lambda_handler(event, context):
 
 ---
 
-## Security
+## Security:
 
 - **S3**: TLS-only bucket policy, **SSE-S3** encryption, public access blocked.  
 - **IAM**: one role per Lambda; Step Functions role can `lambda:InvokeFunction`, `sqs:SendMessage`, and write X-Ray traces.  
@@ -270,7 +270,7 @@ def lambda_handler(event, context):
 
 ---
 
-## Troubleshooting
+## Troubleshooting:
 
 - **No workflow execution**  
   - Check **EventBridge rule** bucket name and `zipped/` prefix; confirm the target is your `DocumentStateMachine`.  
@@ -285,7 +285,7 @@ def lambda_handler(event, context):
 
 ---
 
-## Hardening for Production
+## Hardening for Production:
 
 - Replace any broad managed policies with **least-privilege statements**.  
 - Add **Step Functions Catch/Retry** with `ResultPath` and fallback routes (e.g., to DLQ).  
@@ -296,7 +296,7 @@ def lambda_handler(event, context):
 
 ---
 
-## 🖼 Workflow Frames (text above, image below)
+## Workflow Frames:
 
 ### Frame 1 — S3 Upload Detected (zipped/)
 EventBridge rule captures ObjectCreated on the bucket `DocumentBucket` with prefix `zipped/` and starts the `DocumentStateMachine`. Verify the event detail shows the correct object key.
