@@ -22,8 +22,11 @@ A production-style, serverless pipeline that ingests customer identity document 
 
 
 5. **PerformChecks (Parallel)**  
+
    - **CompareFaces** — `CompareFacesLambdaFunction` uses **Rekognition** to compare selfie vs license photo; writes `LICENSE_SELFIE_MATCH`.  
+
    - **CompareDetails** — `CompareDetailsLambdaFunction` uses **Textract** to extract **name/DOB/address** and compare to CSV; writes `LICENSE_DETAILS_MATCH`.  
+
    - If **either** branch fails or mismatches → **execution fails** (no SQS message).  
 
 
