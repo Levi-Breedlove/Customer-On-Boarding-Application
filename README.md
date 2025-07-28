@@ -5,7 +5,7 @@ This application automates the customer onboarding process by validating custome
 
 ## How It Works
 ![Customer Onboarding Application Architecture](images/onboarding-architecture.png)
-Upload ZIP → S3 Storage → Automated Processing Workflow → Email Notification ←→ Database Update ←→ License Verification ←→ Identity Checks
+
 ### Simple Workflow
 
 1. **Document Upload**: Customer uploads a ZIP file containing:
@@ -25,6 +25,25 @@ Upload ZIP → S3 Storage → Automated Processing Workflow → Email Notificati
    - External system validates the license information
    - Customer receives notification about application status
 
+## Key Resources
+
+- **Storage**: Documents are stored in Amazon S3
+- **Database**: Customer information is stored in DynamoDB
+- **Processing**: AWS Lambda functions handle each workflow step
+- **Orchestration**: Step Functions coordinate the entire process
+- **Notifications**: Email notifications sent via SNS
+
+## Verification Steps
+
+1. **Identity Match**: Confirms the selfie matches the photo on the ID
+2. **Details Match**: Verifies text on ID matches submitted personal information
+3. **License Validation**: Validates license information with verification service
+
+The system maintains a complete audit trail and handles failures gracefully with appropriate error handling and dead-letter queues for troubleshooting.
+
+## Monitoring
+
+The application includes comprehensive logging and tracing to monitor performance and troubleshoot any issues that might arise during the onboarding process.
 
 ## Customer Onboarding Workflow — Valid & Invalid Runs (with References)
 
