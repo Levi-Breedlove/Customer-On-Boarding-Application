@@ -49,7 +49,7 @@ This application automates the customer onboarding process by validating custome
   - CloudWatch provides comprehensive logging for all components
   - X-Ray tracing enabled for state machine and Lambda functions
 
-## Verification Steps
+<-- ## Verification Steps
 
 1. **Identity Match**: Confirms the selfie matches the photo on the ID
 2. **Details Match**: Verifies text on ID matches submitted personal information
@@ -59,7 +59,7 @@ The system maintains a complete audit trail and handles failures gracefully with
 
 ## Monitoring
 
-The application includes comprehensive logging and tracing to monitor performance and troubleshoot any issues that might arise during the onboarding process.
+The application includes comprehensive logging and tracing to monitor performance and troubleshoot any issues that might arise during the onboarding process. -->
 
 ## Workflow Demo — Valid & Invalid Runs
 
