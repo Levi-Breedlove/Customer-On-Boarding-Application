@@ -291,7 +291,7 @@ def lambda_handler(event, context):
 - **API Gateway**: mock endpoint; add authentication/authorization before integrating a real vendor.
 
 
-## Troubleshooting:
+<-- ## Troubleshooting: 
 
 - **No workflow execution**  
   - Check **EventBridge rule** bucket name and `zipped/` prefix; confirm the target is your `DocumentStateMachine`.  
@@ -302,7 +302,7 @@ def lambda_handler(event, context):
 - **Rekognition/Textract AccessDenied**  
   - These APIs often require `"Resource": "*"`. Narrow scoping too early will break calls.  
 - **Queue ARN vs URL**  
-  - If your Lambda calls `send_message(QueueUrl=...)`, you must pass a **Queue URL**, not an ARN.
+  - If your Lambda calls `send_message(QueueUrl=...)`, you must pass a **Queue URL**, not an ARN. --> 
 
 
 ## Hardening for Production:
