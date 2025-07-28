@@ -30,6 +30,10 @@ This application automates the customer onboarding process by validating custome
 - **Storage**: Documents are stored in Amazon S3 (`DocumentBucket`)
   
 - **Database**: Customer information is stored in DynamoDB (`CustomerMetadataTable`)
+  - `Identity Match`: Confirms the selfie matches the photo on the ID
+  - `Details Match`: Verifies text on ID matches submitted personal information
+  - `License Validation`: Validates license information with verification service
+      - The system maintains a complete audit trail and handles failures gracefully with appropriate error handling and dead-letter queues for troubleshooting.
   
 - **Processing**: AWS Lambda functions handle each workflow step:
   - `UnzipLambdaFunction`: Extracts uploaded ZIP files
@@ -48,18 +52,8 @@ This application automates the customer onboarding process by validating custome
 - **Monitoring**: 
   - CloudWatch provides comprehensive logging for all components
   - X-Ray tracing enabled for state machine and Lambda functions
+  - The application includes comprehensive logging and tracing to monitor performance and troubleshoot any issues that might arise during the onboarding process.
 
-<-- ## Verification Steps
-
-1. **Identity Match**: Confirms the selfie matches the photo on the ID
-2. **Details Match**: Verifies text on ID matches submitted personal information
-3. **License Validation**: Validates license information with verification service
-
-The system maintains a complete audit trail and handles failures gracefully with appropriate error handling and dead-letter queues for troubleshooting. -->
-
-<-- ## Monitoring
-
-The application includes comprehensive logging and tracing to monitor performance and troubleshoot any issues that might arise during the onboarding process. -->
 
 ## Workflow Demo — Valid & Invalid Runs
 
