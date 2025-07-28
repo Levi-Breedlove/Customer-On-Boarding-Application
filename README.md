@@ -1,5 +1,4 @@
 # Know Your Customer Onboarding Application 
-AWS Capstone: 1
 
 ## Overview
 This application automates the customer onboarding process by validating customer-provided documents through a secure, serverless workflow. The system processes identity documents, compares facial images, and verifies personal information before submitting validated applications to the next stage.
