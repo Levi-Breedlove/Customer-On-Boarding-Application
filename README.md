@@ -257,7 +257,7 @@ def lambda_handler(event, context):
 - Add **Cognito** for authenticated uploads and scoped access.  
 - Export audit data to **S3** and analyze with **Athena/Glue** if required. --> 
 
-## 🔍 AWS X-Ray Tracing — End-to-End Visibility
+## AWS X-Ray Tracing — End-to-End Visibility
 
 This section explains how X-Ray traces the full onboarding run — from the S3-triggered state machine through parallel checks, SQS handoff, API call, and final database/notification writes.
 
