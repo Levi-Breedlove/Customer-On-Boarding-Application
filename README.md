@@ -28,7 +28,9 @@ This application automates the customer onboarding process by validating custome
 ## Key Resources
 
 - **Storage**: Documents are stored in Amazon S3 (`DocumentBucket`)
+  
 - **Database**: Customer information is stored in DynamoDB (`CustomerMetadataTable`)
+  
 - **Processing**: AWS Lambda functions handle each workflow step:
   - `UnzipLambdaFunction`: Extracts uploaded ZIP files
   - `WriteToDynamoLambdaFunction`: Stores customer data in DynamoDB
@@ -36,9 +38,13 @@ This application automates the customer onboarding process by validating custome
   - `CompareDetailsLambdaFunction`: Uses Textract to verify ID details
   - `SubmitLicenseLambdaFunction`: Submits verified applications
   - `ValidateLicenseLambdaFunction`: Mock vendor validation service
+    
 - **Orchestration**: Step Functions coordinate the entire process (`DocumentStateMachine`)
+  
 - **Messaging**: SQS queues (`LicenseQueue`, `LicenseDeadLetterQueue`) manage message flow
+  
 - **Notifications**: Email notifications sent via SNS (`ApplicationStatusTopic`)
+  
 - **Monitoring**: 
   - CloudWatch provides comprehensive logging for all components
   - X-Ray tracing enabled for state machine and Lambda functions
