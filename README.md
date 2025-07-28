@@ -61,7 +61,7 @@ The system maintains a complete audit trail and handles failures gracefully with
 
 The application includes comprehensive logging and tracing to monitor performance and troubleshoot any issues that might arise during the onboarding process.
 
-## Customer Onboarding Workflow — Valid & Invalid Runs (with References)
+## Workflow Demo — Valid & Invalid Runs
 
 This guide shows **exact console screenshots** for both **valid** and **invalid** customer document uploads through the serverless KYC pipeline.
 
