@@ -85,8 +85,8 @@ A valid submission traverses all states and ends **SUCCEEDED**.
 
    - Message: License photo validation SUCCEEDED
 
-![SNS — success](images/snscreation.png)
-![SNS — success](images/validatesuceed.png)
+     ![SNS — success](images/snscreation.png)
+     ![SNS — success](images/validatesuceed.png)
 
 
 ## 2) State Machine — Failure Paths
@@ -106,8 +106,8 @@ A valid submission traverses all states and ends **SUCCEEDED**.
 
    - Message: License photo validation FAILED
 
-![SNS — fail](images/validationfail3rdparty.png)
-![SNS — fail](images/licensephotofail.png)
+     ![SNS — fail](images/validationfail3rdparty.png)
+     ![SNS — fail](images/licensephotofail.png)
 
 
 ### 2.2 Details Mismatch → **CompareDetails** fails
@@ -127,7 +127,7 @@ A valid submission traverses all states and ends **SUCCEEDED**.
 
    - Message: License photo validation FAILED
 
-![SNS — fail](images/datavalidationfail.png)
+     ![SNS — fail](images/datavalidationfail.png)
 
 
 ## 3) S3 Document Intake
