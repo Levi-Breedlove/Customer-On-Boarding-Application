@@ -4,7 +4,7 @@ A production-style, serverless pipeline that ingests customer identity ZIP submi
 
 ---
 
-# Customer Onboarding Application Architecture
+# Application Architecture
 ![Customer Onboarding Application Architecture](images/onboarding-architecture.png)
 ## Workflow:
 
