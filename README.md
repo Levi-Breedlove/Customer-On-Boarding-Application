@@ -10,19 +10,26 @@ This application automates the customer onboarding process by validating custome
 
 1. **Document Upload**: Customer uploads a ZIP file containing:
    - A selfie image
+     
    - A photo ID/license
+     
    - A CSV file with personal details
 
-2. **Document Processing**:
+3. **Document Processing**:
    - System unpacks the ZIP file and organizes the contents
+     
    - Customer information is stored in a database
+     
    - Two verification checks run simultaneously:
      - Face comparison between selfie and ID photo
+       
      - Verification that ID details match submitted information
 
-3. **Validation & Submission**:
+4. **Validation & Submission**:
    - If both checks pass, application moves to final verification
+     
    - External system validates the license information
+     
    - Customer receives notification about application status
 
 ## Key Resources
@@ -31,17 +38,26 @@ This application automates the customer onboarding process by validating custome
   
 - **Database**: Customer information is stored in DynamoDB (`CustomerMetadataTable`)
   - `Identity Match`: Confirms the selfie matches the photo on the ID
+    
   - `Details Match`: Verifies text on ID matches submitted personal information
+    
   - `License Validation`: Validates license information with verification service
       - The system maintains a complete audit trail and handles failures gracefully with appropriate error handling and dead-letter queues for troubleshooting.
   
 - **Processing**: AWS Lambda functions handle each workflow step:
+  
   - `UnzipLambdaFunction`: Extracts uploaded ZIP files
+    
   - `WriteToDynamoLambdaFunction`: Stores customer data in DynamoDB
+    
   - `CompareFacesLambdaFunction`: Uses Rekognition to compare faces
+    
   - `CompareDetailsLambdaFunction`: Uses Textract to verify ID details
+    
   - `SubmitLicenseLambdaFunction`: Submits verified applications
+    
   - `ValidateLicenseLambdaFunction`: Mock vendor validation service
+   
     
 - **Orchestration**: Step Functions coordinate the entire process (`DocumentStateMachine`)
   
@@ -51,7 +67,9 @@ This application automates the customer onboarding process by validating custome
   
 - **Monitoring**: 
   - CloudWatch provides comprehensive logging for all components
+    
   - X-Ray tracing enabled for state machine and Lambda functions
+    
   - The application includes comprehensive logging and tracing to monitor performance and troubleshoot any issues that might arise during the onboarding process.
 
 
@@ -61,7 +79,9 @@ This guide shows **exact console screenshots** for both **valid** and **invalid*
 
 It highlights:
 - the **entire Step Functions state machine** on a success path and two failure paths,
+  
 - the **S3 upload** to the `zipped/` prefix and the extracted results in `unzipped/`, and
+  
 - the **DynamoDB table** items that prove outcomes.
 
 
