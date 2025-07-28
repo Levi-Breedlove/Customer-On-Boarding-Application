@@ -227,27 +227,14 @@ def lambda_handler(event, context):
 - **SQS/SNS**: DLQ configured; in production add **KMS CMKs** for SQS, SNS, DDB, and S3.  
 - **API Gateway**: mock endpoint; add authentication/authorization before integrating a real vendor.
 
-
-<-- ## Troubleshooting:  
-- **No workflow execution**  
-  - Check **EventBridge rule** bucket name and `zipped/` prefix; confirm the target is your `DocumentStateMachine`.  
-- **SQS not consumed**  
-  - Verify the event source mapping on `SubmitLicenseLambdaFunction`; inspect the **DLQ** for poison messages.  
-- **X-Ray gaps**  
-  - Confirm tracing is enabled on the state machine and Lambdas; verify IAM includes `xray:Put*`.  
-- **Rekognition/Textract AccessDenied**  
-  - These APIs often require `"Resource": "*"`. Narrow scoping too early will break calls.  
-- **Queue ARN vs URL**  
-  - If your Lambda calls `send_message(QueueUrl=...)`, you must pass a **Queue URL**, not an ARN. --> 
-
-
-<-- ## Hardening for Production:  
+ ## Hardening for Production:  
+ 
 - Replace any broad managed policies with **least-privilege statements**.  
 - Add **Step Functions Catch/Retry** with `ResultPath` and fallback routes (e.g., to DLQ).  
 - Use **KMS CMKs** for SQS, SNS, S3, and DynamoDB.  
 - Add **CloudWatch Alarms** + **EventBridge** rules for failure notifications and automated remediation.  
 - Add **Cognito** for authenticated uploads and scoped access.  
-- Export audit data to **S3** and analyze with **Athena/Glue** if required. -->
+- Export audit data to **S3** and analyze with **Athena/Glue** if required. 
 
 ## AWS X-Ray Tracing — End-to-End Visibility
 
