@@ -218,7 +218,7 @@ A valid submission traverses all states and ends **SUCCEEDED**.
 ---
 
 
-## Deployment: (SAM / CloudFormation
+## Deployment: (SAM/CloudFormation)
 
 ### Prerequisites:
 
