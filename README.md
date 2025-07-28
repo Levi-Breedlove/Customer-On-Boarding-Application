@@ -305,14 +305,14 @@ def lambda_handler(event, context):
   - If your Lambda calls `send_message(QueueUrl=...)`, you must pass a **Queue URL**, not an ARN. --> 
 
 
-## Hardening for Production:
+<-- ## Hardening for Production:
 
 - Replace any broad managed policies with **least-privilege statements**.  
 - Add **Step Functions Catch/Retry** with `ResultPath` and fallback routes (e.g., to DLQ).  
 - Use **KMS CMKs** for SQS, SNS, S3, and DynamoDB.  
 - Add **CloudWatch Alarms** + **EventBridge** rules for failure notifications and automated remediation.  
 - Add **Cognito** for authenticated uploads and scoped access.  
-- Export audit data to **S3** and analyze with **Athena/Glue** if required.
+- Export audit data to **S3** and analyze with **Athena/Glue** if required. --> 
 
 ## 🔍 AWS X-Ray Tracing — End-to-End Visibility
 
