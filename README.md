@@ -4,7 +4,7 @@ A production-style, serverless pipeline that ingests customer identity ZIP docum
 
 ---
 
-# Application Architecture
+## Application Architecture
 ![Customer Onboarding Application Architecture](images/onboarding-architecture.png)
 ## Workflow:
 
@@ -118,7 +118,7 @@ Customer uploads ZIP
 
 ---
 
-# Customer Onboarding Workflow — Valid & Invalid Runs (with References)
+## Customer Onboarding Workflow — Valid & Invalid Runs (with References)
 
 This guide shows **exact console screenshots** for both **valid** and **invalid** customer document uploads through the serverless KYC pipeline.
 
