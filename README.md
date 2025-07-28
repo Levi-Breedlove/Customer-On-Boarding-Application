@@ -5,7 +5,7 @@ This application automates the customer onboarding process by validating custome
 
 ## How It Works
 ![Customer Onboarding Application Architecture](images/onboarding-architecture.png)
-Upload ZIP → S3 Storage → Automated Processing Workflow ↓ Email Notification ← Database Update ← License Verification ← Identity Checks
+Upload ZIP → S3 Storage → Automated Processing Workflow → Email Notification ←→ Database Update ←→ License Verification ←→ Identity Checks
 ### Simple Workflow
 
 1. **Document Upload**: Customer uploads a ZIP file containing:
