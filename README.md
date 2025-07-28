@@ -1,122 +1,30 @@
 # AnyCompany Bank — Customer Onboarding Application
 
-A production-style, serverless pipeline that ingests customer identity ZIP documents, unzips and parses content, validates identity with **Amazon Rekognition** and **Amazon Textract**, orchestrates the process with **AWS Step Functions**, records outcomes in **Amazon DynamoDB**, and issues notifications via **Amazon SNS**. **Amazon SQS** decouples license validation behind **API Gateway** + Lambda. Full observability is delivered through **AWS X-Ray** and **Amazon CloudWatch**. The entire stack is defined with **AWS SAM / CloudFormation** for reproducible deployments.
+## Overview
+This application automates the customer onboarding process by validating customer-provided documents through a secure, serverless workflow. The system processes identity documents, compares facial images, and verifies personal information before submitting validated applications to the next stage.
 
----
-
-## Application Architecture
+## How It Works
 ![Customer Onboarding Application Architecture](images/onboarding-architecture.png)
-## Workflow:
+Upload ZIP → S3 Storage → Automated Processing Workflow ↓ Email Notification ← Database Update ← License Verification ← Identity Checks
+### Simple Workflow
 
-1. **Upload** ZIP to **S3** under `zipped/`.  
+1. **Document Upload**: Customer uploads a ZIP file containing:
+   - A selfie image
+   - A photo ID/license
+   - A CSV file with personal details
 
+2. **Document Processing**:
+   - System unpacks the ZIP file and organizes the contents
+   - Customer information is stored in a database
+   - Two verification checks run simultaneously:
+     - Face comparison between selfie and ID photo
+     - Verification that ID details match submitted information
 
-2. **EventBridge** rule detects `ObjectCreated` on the bucket/prefix and **starts `DocumentStateMachine`**.  
+3. **Validation & Submission**:
+   - If both checks pass, application moves to final verification
+   - External system validates the license information
+   - Customer receives notification about application status
 
-
-3. **Unzip** — `UnzipLambdaFunction` downloads the ZIP to `/tmp`, extracts, deletes the archive (≤512MB guard), and writes artifacts to **`unzipped/`**.  
-   - Emits `$.application` with `app_uuid`, `selfie_key`, `license_key`, and `details_file`.  
-
-
-4. **WriteToDynamo** — `WriteToDynamoLambdaFunction` fetches **`unzipped/{app_uuid}_details.csv`**, parses the **first (only) row**, then writes the item to **`CustomerMetadataTable`** keyed by `app_uuid`.  
-
-
-5. **PerformChecks (Parallel)**  
-
-   - **CompareFaces** — `CompareFacesLambdaFunction` uses **Rekognition** to compare selfie vs license photo; writes `LICENSE_SELFIE_MATCH`.  
-
-   - **CompareDetails** — `CompareDetailsLambdaFunction` uses **Textract** to extract **name/DOB/address** and compare to CSV; writes `LICENSE_DETAILS_MATCH`.  
-
-   - If **either** branch fails or mismatches → **execution fails** (no SQS message).  
-
-
-6. **ValidateSend** — `arn:aws:states:::sqs:sendMessage` sends a message to **`LicenseQueue`** with `app_uuid` and license details **only if both checks passed**. 
-
-
-7. **SubmitLicense** — `SubmitLicenseLambdaFunction` (SQS consumer) calls **`INVOKE_URL`** (HTTP API `POST /license`) → `ValidateLicenseLambdaFunction` (mock vendor) → updates **DynamoDB** `LICENSE_VALIDATION` and publishes **SNS**.  
-
-
-8. **Observability** — **X-Ray tracing** enabled for the state machine and key Lambdas; **CloudWatch** logs everywhere. **AWS Lambda Powertools** tracer may be used in code.
-
-
-## Architecture Overview:
-
-```text
-Customer uploads ZIP
-        |
-        v
-   Amazon S3 (zipped/)
-        |
-        v   EventBridge: ObjectCreated -> StartExecution
-+----------------------------------+
-|   DocumentStateMachine           |   **Tracing:** X-Ray
-|   **StartAt:** Unzip             |
-|   Unzip(Lambda)                  |   Extracts -> unzipped/
-|   WriteToDynamo(Lambda)          |   Writes base record to DynamoDB
-|   PerformChecks(Parallel)        |
-|    ├─CompareFaces(Lambda)        |  --> LICENSE_SELFIE_MATCH
-|    └─CompareDetails(Lambda)      |  --> LICENSE_DETAILS_MATCH
-|   ValidateSend(SQS sendMessage)  |  <-- only if both True
-+----------------------------------+
-        |
-        v
- Amazon SQS (LicenseQueue)  [DLQ on failures]
-        |
-        v
- SubmitLicenseLambdaFunction (SQS consumer)
-        |
- HTTP API (API Gateway /prod/license)
-        |
-        v
- ValidateLicenseLambdaFunction  (mock vendor)
-        |
-        v
- Amazon DynamoDB  <── writes LICENSE_VALIDATION
-        |
-        v
- Amazon SNS  ──> Email notification
-```
-## Authoritative Resource & Name Map:
-
-### State machine:
-- **Name:** `DocumentStateMachine`  
-- **Role:** `DocumentStateMachineRole`  
-- **States:** `Unzip` → `WriteToDynamo` → `PerformChecks` (Parallel: `CompareFaces`, `CompareDetails`) → `ValidateSend`  
-- **Tracing:** **Enabled** (AWS X-Ray)
-
-### Lambda functions:
-- `UnzipLambdaFunction`  
-- `WriteToDynamoLambdaFunction`  
-- `CompareFacesLambdaFunction`  
-- `CompareDetailsLambdaFunction`  
-- `SubmitLicenseLambdaFunction` *(SQS consumer → HTTP API call → DDB + SNS)*  
-- `ValidateLicenseLambdaFunction` *(HTTP API backend / mock vendor)*
-
-### Data stores & messaging:
-- **DynamoDB table:** `CustomerMetadataTable` (PK: `app_uuid`)  
-  Flags set by the workflow:
-  - `LICENSE_SELFIE_MATCH` (bool)  
-  - `LICENSE_DETAILS_MATCH` (bool)  
-  - `LICENSE_VALIDATION` (bool)
-- **SNS topic:** `ApplicationStatusTopic`  
-- **SQS queues:** `LicenseQueue`, `LicenseDeadLetterQueue`  
-- **S3 bucket (logical):** `DocumentBucket`  
-  - Upload prefix: `zipped/`  
-  - Extracted prefix: `unzipped/`
-
-### API:
-- **HTTP API logical id:** `HttpApi`  
-- **Route:** `POST /license` (mock license verification endpoint)
-
-### Environment variables:
-- `INVOKE_URL` = `https://${HttpApi}.execute-api.us-east-1.amazonaws.com/prod/license`  
-- `TABLE` = `CustomerMetadataTable`  
-- `TOPIC` = `ApplicationStatusTopicArn`  
-- `QUEUE_URL` = `arn:aws:sqs:us-east-1:${AWS::AccountId}:LicenseQueue`  
-- `BUCKET` = `DocumentBucket`  
-- `APP_UUID` = generated at runtime
-
----
 
 ## Customer Onboarding Workflow — Valid & Invalid Runs (with References)
 
